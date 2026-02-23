@@ -1,14 +1,12 @@
-import torch
+import jittor as jt
 import itertools
 from util.image_pool import ImagePool
 from .base_model import BaseModel
 from . import networks
-try:
-    from apex import amp
-except ImportError as error:
-    print(error)
 
 
+# CycleGAN 模型
+# CycleGAN 通过两个生成器和两个判别器的对抗训练，以及循环一致性损失的约束，实现了不同域之间的双向转换
 class CycleGANModel(BaseModel):
     """
     This class implements the CycleGAN model, for learning image-to-image translation without paired data.
@@ -40,8 +38,6 @@ class CycleGANModel(BaseModel):
         Identity loss (optional): lambda_identity * (||G_A(B) - B|| * lambda_B + ||G_B(A) - A|| * lambda_A) (Sec 5.2 "Photo generation from paintings" in the paper)
         Dropout is not used in the original CycleGAN paper.
         """
-        # parser.set_defaults(no_dropout=True, no_antialias=True, no_antialias_up=True)  # default CycleGAN did not use dropout
-        # parser.set_defaults(no_dropout=True)
         if is_train:
             parser.add_argument('--lambda_A', type=float, default=10.0, help='weight for cycle loss (A -> B -> A)')
             parser.add_argument('--lambda_B', type=float, default=10.0, help='weight for cycle loss (B -> A -> B)')
@@ -92,12 +88,12 @@ class CycleGANModel(BaseModel):
             self.fake_A_pool = ImagePool(opt.pool_size)  # create image buffer to store previously generated images
             self.fake_B_pool = ImagePool(opt.pool_size)  # create image buffer to store previously generated images
             # define loss functions
-            self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
-            self.criterionCycle = torch.nn.L1Loss()
-            self.criterionIdt = torch.nn.L1Loss()
+            self.criterionGAN = networks.GANLoss(opt.gan_mode)  
+            self.criterionCycle = jt.nn.L1Loss()
+            self.criterionIdt = jt.nn.L1Loss()
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
-            self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
-            self.optimizer_D = torch.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
+            self.optimizer_G = jt.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
+            self.optimizer_D = jt.optim.Adam(itertools.chain(self.netD_A.parameters(), self.netD_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
 
@@ -110,8 +106,8 @@ class CycleGANModel(BaseModel):
         The option 'direction' can be used to swap domain A and domain B.
         """
         AtoB = self.opt.direction == 'AtoB'
-        self.real_A = input['A' if AtoB else 'B'].to(self.device)
-        self.real_B = input['B' if AtoB else 'A'].to(self.device)
+        self.real_A = jt.array(input['A' if AtoB else 'B']).stop_grad()  
+        self.real_B = jt.array(input['B' if AtoB else 'A']).stop_grad()
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
 
     def forward(self):
@@ -136,15 +132,11 @@ class CycleGANModel(BaseModel):
         pred_real = netD(real)
         loss_D_real = self.criterionGAN(pred_real, True)
         # Fake
-        pred_fake = netD(fake.detach())
+        pred_fake = netD(fake.stop_grad())  
         loss_D_fake = self.criterionGAN(pred_fake, False)
         # Combined loss and calculate gradients
         loss_D = (loss_D_real + loss_D_fake) * 0.5
-        if self.opt.amp:
-            with amp.scale_loss(loss_D, self.optimizer_D) as scaled_loss:
-                scaled_loss.backward()
-        else:
-            loss_D.backward()
+        loss_D.backward()  
         return loss_D
 
     def backward_D_A(self):
@@ -184,21 +176,17 @@ class CycleGANModel(BaseModel):
         self.loss_cycle_B = self.criterionCycle(self.rec_B, self.real_B) * lambda_B
         # combined loss and calculate gradients
         self.loss_G = self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + self.loss_idt_A + self.loss_idt_B
-        if self.opt.amp:
-            with amp.scale_loss(self.loss_G, self.optimizer_G) as scaled_loss:
-                scaled_loss.backward()
-        else:
-            self.loss_G.backward()
+        self.loss_G.backward() 
 
     def data_dependent_initialize(self):
         return
 
     def generate_visuals_for_evaluation(self, data, mode):
-        with torch.no_grad():
+        with jt.no_grad():
             visuals = {}
             AtoB = self.opt.direction == "AtoB"
             G = self.netG_A
-            source = data["A" if AtoB else "B"].to(self.device)
+            source = jt.array(data["A" if AtoB else "B"]).stop_grad()  
             if mode == "forward":
                 visuals["fake_B"] = G(source)
             else:

@@ -13,7 +13,7 @@ def get_file_paths(folder):
             if filename.endswith('.png') or filename.endswith('.jpg'):
                 image_file_paths.append(file_path)
 
-        break  # prevent descending into subfolders
+        break  
     return image_file_paths
 
 

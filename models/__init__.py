@@ -21,7 +21,7 @@ See our template model class 'template_model.py' for more details.
 import importlib
 from models.base_model import BaseModel
 
-
+# 根据模型名称（如cycle_gan、pix2pix）查找并返回对应的模型类
 def find_model_using_name(model_name):
     """Import the module "models/[model_name]_model.py".
 
@@ -44,13 +44,13 @@ def find_model_using_name(model_name):
 
     return model
 
-
+# 获取模型类中用于修改命令行参数的静态方法modify_commandline_options
 def get_option_setter(model_name):
     """Return the static method <modify_commandline_options> of the model class."""
     model_class = find_model_using_name(model_name)
     return model_class.modify_commandline_options
 
-
+# 根据配置参数创建模型实例，是训练 / 测试脚本与模型的主要接口
 def create_model(opt):
     """Create a model given the option.
 

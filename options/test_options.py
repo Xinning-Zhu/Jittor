@@ -11,7 +11,7 @@ class TestOptions(BaseOptions):
         parser = BaseOptions.initialize(self, parser)  # define shared options
         parser.add_argument('--results_dir', type=str, default='./results/', help='saves results here.')
         parser.add_argument('--phase', type=str, default='test', help='train, val, test, etc')
-        # Dropout and Batchnorm has different behavioir during training and test.
+        # Dropout and Batchnorm have different behavior during training and test.
         parser.add_argument('--eval', action='store_true', help='use eval mode during test time.')
         parser.add_argument('--num_test', type=int, default=5000, help='how many test images to run')
 

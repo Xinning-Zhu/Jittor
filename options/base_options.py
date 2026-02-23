@@ -1,34 +1,33 @@
 import argparse
 import os
 from util import util
-import torch
+import jittor
 import models
 import data
 
 
 class BaseOptions():
-    """This class defines options used during both training and test time.
-
-    It also implements several helper functions such as parsing, printing, and saving the options.
-    It also gathers additional options defined in <modify_commandline_options> functions in both dataset class and model class.
+    """定义训练和测试阶段共有的基础配置参数（如数据路径、模型结构、设备设置等）
+       整合模型和数据集专属的自定义参数（通过回调函数扩展）
+       解析命令行参数并进行有效性处理（如 GPU 设备配置）
+       打印并保存配置信息，确保实验可复现
     """
 
     def __init__(self, cmd_line=None):
-        """Reset the class; indicates the class hasn't been initailized"""
         self.initialized = False
         self.cmd_line = None
         if cmd_line is not None:
             self.cmd_line = cmd_line.split()
 
     def initialize(self, parser):
-        """Define the common options that are used in both training and test."""
-        # basic parameters
+        """初始化命令行参数解析器，定义通用配置选项"""
+        # 基础参数
         parser.add_argument('--dataroot', default='placeholder', help='path to images (should have subfolders trainA, trainB, valA, valB, etc)')
         parser.add_argument('--name', type=str, default='experiment_name', help='name of the experiment. It decides where to store samples and models')
         parser.add_argument('--easy_label', type=str, default='experiment_name', help='Interpretable name')
         parser.add_argument('--gpu_ids', type=str, default='0', help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
         parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints', help='models are saved here')
-        # model parameters
+        # 模型参数
         parser.add_argument('--model', type=str, default='santa', help='chooses which model to use.')
         parser.add_argument('--input_nc', type=int, default=3, help='# of input image channels: 3 for RGB and 1 for grayscale')
         parser.add_argument('--output_nc', type=int, default=3, help='# of output image channels: 3 for RGB and 1 for grayscale')
@@ -45,7 +44,7 @@ class BaseOptions():
                             help='no dropout for the generator')
         parser.add_argument('--no_antialias', action='store_true', help='if specified, use stride=2 convs instead of antialiased-downsampling (sad)')
         parser.add_argument('--no_antialias_up', action='store_true', help='if specified, use [upconv(learned filter)] instead of [upconv(hard-coded [1,3,3,1] filter), conv]')
-        # dataset parameters
+        # 数据集参数
         parser.add_argument('--dataset_mode', type=str, default='unaligned', help='chooses how datasets are loaded. [unaligned | aligned | single | colorization]')
         parser.add_argument('--direction', type=str, default='AtoB', help='AtoB or BtoA')
         parser.add_argument('--serial_batches', action='store_true', help='if true, takes images in order to make batches, otherwise takes them randomly')
@@ -59,12 +58,10 @@ class BaseOptions():
         parser.add_argument('--display_winsize', type=int, default=256, help='display window size for both visdom and HTML')
         parser.add_argument('--random_scale_max', type=float, default=3.0,
                             help='(used for single image translation) Randomly scale the image by the specified factor as data augmentation.')
-        # additional parameters
+        # 其他参数
         parser.add_argument('--epoch', type=str, default='latest', help='which epoch to load? set to latest to use latest cached model')
         parser.add_argument('--verbose', action='store_true', help='if specified, print more debugging information')
         parser.add_argument('--suffix', default='', type=str, help='customized suffix: opt.name = opt.name + suffix: e.g., {model}_{netG}_size{load_size}')
-
-        # parameters related to StyleGAN2-based networks
         parser.add_argument('--stylegan2_G_num_downsampling',
                             default=1, type=int,
                             help='Number of downsampling layers used by StyleGAN2Generator')
@@ -73,36 +70,28 @@ class BaseOptions():
         return parser
 
     def gather_options(self):
-        """Initialize our parser with basic options(only once).
-        Add additional model-specific and dataset-specific options.
-        These options are defined in the <modify_commandline_options> function
-        in model and dataset classes.
-        """
-        if not self.initialized:  # check if it has been initialized
+        """整合基础参数与自定义参数，生成完整的配置解析器"""
+        if not self.initialized:  
             parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
             parser = self.initialize(parser)
 
-        # get the basic options
         if self.cmd_line is None:
             opt, _ = parser.parse_known_args()
         else:
             opt, _ = parser.parse_known_args(self.cmd_line)
 
-        # modify model-related parser options
         model_name = opt.model
         model_option_setter = models.get_option_setter(model_name)
         parser = model_option_setter(parser, self.isTrain)
         if self.cmd_line is None:
-            opt, _ = parser.parse_known_args()  # parse again with new defaults
+            opt, _ = parser.parse_known_args()  
         else:
-            opt, _ = parser.parse_known_args(self.cmd_line)  # parse again with new defaults
+            opt, _ = parser.parse_known_args(self.cmd_line)  
 
-        # modify dataset-related parser options
         dataset_name = opt.dataset_mode
         dataset_option_setter = data.get_option_setter(dataset_name)
         parser = dataset_option_setter(parser, self.isTrain)
 
-        # save and return the parser
         self.parser = parser
         if self.cmd_line is None:
             return parser.parse_args()
@@ -110,11 +99,7 @@ class BaseOptions():
             return parser.parse_args(self.cmd_line)
 
     def print_options(self, opt):
-        """Print and save options
-
-        It will print both current options and default values(if different).
-        It will save options into a text file / [checkpoints_dir] / opt.txt
-        """
+        """打印所有配置参数，并保存到文件"""
         message = ''
         message += '----------------- Options ---------------\n'
         for k, v in sorted(vars(opt).items()):
@@ -126,7 +111,6 @@ class BaseOptions():
         message += '----------------- End -------------------'
         print(message)
 
-        # save to the disk
         expr_dir = os.path.join(opt.checkpoints_dir, opt.name)
         util.mkdirs(expr_dir)
         opt.run_dir = expr_dir
@@ -141,18 +125,17 @@ class BaseOptions():
             pass
 
     def parse(self):
-        """Parse our options, create checkpoints directory suffix, and set up gpu device."""
+        """解析参数并完成最终初始化"""
         opt = self.gather_options()
-        opt.isTrain = self.isTrain   # train or test
+        opt.isTrain = self.isTrain   
 
-        # process opt.suffix
         if opt.suffix:
             suffix = ('_' + opt.suffix.format(**vars(opt))) if opt.suffix != '' else ''
             opt.name = opt.name + suffix
 
         self.print_options(opt)
 
-        # set gpu ids
+        # 配置 GPU 设备
         str_ids = opt.gpu_ids.split(',')
         opt.gpu_ids = []
         for str_id in str_ids:
@@ -160,7 +143,7 @@ class BaseOptions():
             if id >= 0:
                 opt.gpu_ids.append(id)
         if len(opt.gpu_ids) > 0:
-            torch.cuda.set_device(opt.gpu_ids[0])
+            jittor.flags.use_cuda = 1
 
         self.opt = opt
         return self.opt

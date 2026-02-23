@@ -7,21 +7,11 @@ from zipfile import ZipFile
 from bs4 import BeautifulSoup
 from os.path import abspath, isdir, join, basename
 
-
+# 用于自动下载 CycleGAN 或 pix2pix 模型所需的数据集
 class GetData(object):
-    """A Python script for downloading CycleGAN or pix2pix datasets.
-
-    Parameters:
-        technique (str) -- One of: 'cyclegan' or 'pix2pix'.
-        verbose (bool)  -- If True, print additional information.
-
-    Examples:
-        >>> from util.get_data import GetData
-        >>> gd = GetData(technique='cyclegan')
-        >>> new_data_path = gd.get(save_path='./datasets')  # options will be displayed.
-
-    Alternatively, You can use bash scripts: 'scripts/download_pix2pix_model.sh'
-    and 'scripts/download_cyclegan_model.sh'.
+    """从伯克利大学的官方数据集仓库下载 CycleGAN 或 pix2pix 所需的预设数据集
+       提供交互式选择界面，让用户可以从可用数据集中挑选需要的数据集
+       自动处理下载、解压和清理过程，将数据集整理到指定目录
     """
 
     def __init__(self, technique='cyclegan', verbose=True):
@@ -52,7 +42,7 @@ class GetData(object):
         choice = input("\nPlease enter the number of the "
                        "dataset above you wish to download:")
         return options[int(choice)]
-
+    # 下载
     def _download_data(self, dataset_url, save_path):
         if not isdir(save_path):
             os.makedirs(save_path)
@@ -75,7 +65,8 @@ class GetData(object):
         obj.extractall(save_path)
         obj.close()
         os.remove(temp_save_path)
-
+        
+    # 对外提供的下载入口，整合上述所有步骤
     def get(self, save_path, dataset=None):
         """
 

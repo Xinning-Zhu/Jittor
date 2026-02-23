@@ -3,7 +3,7 @@ import os
 import glob
 import argparse
 
-
+"""自动识别图像中的猫脸区域，对其进行裁剪、调整尺寸后保存，适用于猫脸图像数据集的预处理"""
 def get_file_paths(folder):
     image_file_paths = []
     for root, dirs, filenames in os.walk(folder):
@@ -14,7 +14,7 @@ def get_file_paths(folder):
             if filename.endswith('.png') or filename.endswith('.jpg'):
                 image_file_paths.append(file_path)
 
-        break  # prevent descending into subfolders
+        break 
     return image_file_paths
 
 

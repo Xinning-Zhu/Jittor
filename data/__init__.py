@@ -10,11 +10,14 @@
 Now you can use the dataset class by specifying flag '--dataset_mode dummy'.
 See our template dataset class 'template_dataset.py' for more details.
 """
+# 根据配置动态地创建数据集和数据加载器
 import importlib
-import torch.utils.data
+import copy
+import os
+import jittor as jt
 from data.base_dataset import BaseDataset
 
-
+# 动态查找并导入对应的数据集类
 def find_dataset_using_name(dataset_name):
     """Import the module "data/[dataset_name]_dataset.py".
 
@@ -38,12 +41,13 @@ def find_dataset_using_name(dataset_name):
     return dataset
 
 
+# 获取指定数据集类的静态方法 modify_commandline_options，在解析命令行参数前修改或添加数据集特定的配置选项
 def get_option_setter(dataset_name):
     """Return the static method <modify_commandline_options> of the dataset class."""
     dataset_class = find_dataset_using_name(dataset_name)
     return dataset_class.modify_commandline_options
 
-
+# 创建数据集和数据加载器的统一入口函数，对外提供简洁的 API
 def create_dataset(opt):
     """Create a dataset given the option.
 
@@ -58,7 +62,7 @@ def create_dataset(opt):
     dataset = data_loader.load_data()
     return dataset
 
-
+# 包装数据集实例，并创建对应的 Jittor 数据加载器 (DataLoader)，负责多线程的数据加载和批处理
 class CustomDatasetDataLoader():
     """Wrapper class of Dataset class that performs multi-threaded data loading"""
 
@@ -72,7 +76,8 @@ class CustomDatasetDataLoader():
         dataset_class = find_dataset_using_name(opt.dataset_mode)
         self.dataset = dataset_class(opt)
         print("dataset [%s] was created" % type(self.dataset).__name__)
-        self.dataloader = torch.utils.data.DataLoader(
+        # Use Jittor's DataLoader
+        self.dataloader = jt.dataset.DataLoader(
             self.dataset,
             batch_size=opt.batch_size,
             shuffle=not opt.serial_batches,
@@ -96,8 +101,8 @@ class CustomDatasetDataLoader():
             if i * self.opt.batch_size >= self.opt.max_dataset_size:
                 break
             yield data
-import copy
-import os
+
+
 def get_test_loaders(train_opt):
     opt = copy.deepcopy(train_opt)
     opt.num_threads = 0   # test code only supports num_threads = 1

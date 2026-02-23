@@ -5,19 +5,20 @@ import ntpath
 import time
 from . import util, html
 from subprocess import Popen, PIPE
+import jittor as jt
 
 if sys.version_info[0] == 2:
     VisdomExceptionBase = Exception
 else:
     VisdomExceptionBase = ConnectionError
 
-
+# 将图像结果保存到磁盘，并添加到 HTML 网页中
 def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256):
     """Save images to the disk.
 
     Parameters:
-        webpage (the HTML class) -- the HTML webpage class that stores these imaegs (see html.py for more details)
-        visuals (OrderedDict)    -- an ordered dictionary that stores (name, images (either tensor or numpy) ) pairs
+        webpage (the HTML class) -- the HTML webpage class that stores these images (see html.py for more details)
+        visuals (OrderedDict)    -- an ordered dictionary that stores (name, images (either jittor tensor or numpy) ) pairs
         image_path (str)         -- the string is used to create image paths
         aspect_ratio (float)     -- the aspect ratio of saved images
         width (int)              -- the images will be resized to width x width
@@ -32,7 +33,7 @@ def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256):
     ims, txts, links = [], [], []
 
     for label, im_data in visuals.items():
-        im = util.tensor2im(im_data)
+        im = util.tensor2im(im_data)  
         image_name = '%s/%s.png' % (label, name)
         os.makedirs(os.path.join(image_dir, label), exist_ok=True)
         save_path = os.path.join(image_dir, image_name)
@@ -42,7 +43,7 @@ def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256):
         links.append(image_name)
     webpage.add_images(ims, txts, links, width=width)
 
-
+# Visdom 实时可视化、HTML 结果保存和日志记录功能
 class Visualizer():
     """This class includes several functions that can display/save images and print/save logging information.
 
@@ -56,7 +57,7 @@ class Visualizer():
             opt -- stores all the experiment flags; needs to be a subclass of BaseOptions
         Step 1: Cache the training/test options
         Step 2: connect to a visdom server
-        Step 3: create an HTML object for saveing HTML filters
+        Step 3: create an HTML object for saving HTML files
         Step 4: create a logging file to store training losses
         """
         self.opt = opt  # cache the option
@@ -85,7 +86,7 @@ class Visualizer():
             self.web_dir = os.path.join(opt.checkpoints_dir, opt.name, 'web')
             self.img_dir = os.path.join(self.web_dir, 'images')
             print('create web directory %s...' % self.web_dir)
-            util.mkdirs([self.web_dir, self.img_dir])
+            util.mkdirsirs([self.web_dir, self.img_dir])
         # create a logging file to store training losses
         self.log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log.txt')
         with open(self.log_name, "a") as log_file:
@@ -111,25 +112,31 @@ class Visualizer():
             epoch (int) - - the current epoch
             save_result (bool) - - if save the current results to an HTML file
         """
-        if self.display_id > 0:  # show images in the browser using visdom
+        if self.display_id > 0:  
             ncols = self.ncols
-            if ncols > 0:        # show all the images in one visdom panel
+            if ncols > 0:       
                 ncols = min(ncols, len(visuals))
-                h, w = next(iter(visuals.values())).shape[:2]
+                first_img = next(iter(visuals.values()))
+                if isinstance(first_img, jt.Var):
+                    h, w = first_img.shape[1], first_img.shape[2]  
+                else: 
+                    h, w = first_img.shape[:2]
                 table_css = """<style>
                         table {border-collapse: separate; border-spacing: 4px; white-space: nowrap; text-align: center}
                         table td {width: % dpx; height: % dpx; padding: 4px; outline: 4px solid black}
-                        </style>""" % (w, h)  # create a table css
-                # create a table of images.
+                        </style>""" % (w, h)  
                 title = self.name
                 label_html = ''
                 label_html_row = ''
                 images = []
                 idx = 0
                 for label, image in visuals.items():
-                    image_numpy = util.tensor2im(image)
+                    if isinstance(image, jt.Var):
+                        image_numpy = util.tensor2im(image)  
+                    else:
+                        image_numpy = image
                     label_html_row += '<td>%s</td>' % label
-                    images.append(image_numpy.transpose([2, 0, 1]))
+                    images.append(image_numpy.transpose([2, 0, 1]))  
                     idx += 1
                     if idx % ncols == 0:
                         label_html += '<tr>%s</tr>' % label_html_row
@@ -150,11 +157,14 @@ class Visualizer():
                 except VisdomExceptionBase:
                     self.create_visdom_connections()
 
-            else:     # show each image in a separate visdom panel;
+            else:     
                 idx = 1
                 try:
                     for label, image in visuals.items():
-                        image_numpy = util.tensor2im(image)
+                        if isinstance(image, jt.Var):
+                            image_numpy = util.tensor2im(image)
+                        else:
+                            image_numpy = image
                         self.vis.image(
                             image_numpy.transpose([2, 0, 1]),
                             self.display_id + idx,
@@ -169,7 +179,10 @@ class Visualizer():
             self.saved = True
             # save images to the disk
             for label, image in visuals.items():
-                image_numpy = util.tensor2im(image)
+                if isinstance(image, jt.Var):
+                    image_numpy = util.tensor2im(image)
+                else:
+                    image_numpy = image
                 img_path = os.path.join(self.img_dir, 'epoch%.3d_%s.png' % (epoch, label))
                 util.save_image(image_numpy, img_path)
 
@@ -179,15 +192,19 @@ class Visualizer():
                 webpage.add_header('epoch [%d]' % n)
                 ims, txts, links = [], [], []
 
-                for label, image_numpy in visuals.items():
-                    image_numpy = util.tensor2im(image)
+                for label, image in visuals.items():
+                    if isinstance(image, jt.Var):
+                        image_numpy = util.tensor2im(image)
+                    else:
+                        image_numpy = image
                     img_path = 'epoch%.3d_%s.png' % (n, label)
                     ims.append(img_path)
                     txts.append(label)
                     links.append(img_path)
                 webpage.add_images(ims, txts, links, width=self.win_size)
             webpage.save()
-
+    
+    # 通过 Visdom 绘制并更新训练损失曲线
     def plot_current_losses(self, epoch, counter_ratio, losses):
         """display the current losses on visdom display: dictionary of error labels and values
 
@@ -208,7 +225,15 @@ class Visualizer():
         plot_id = list(self.plot_data.keys()).index(plot_name)
 
         plot_data['X'].append(epoch + counter_ratio)
-        plot_data['Y'].append([losses[k] for k in plot_data['legend']])
+        y_values = []
+        for k in plot_data['legend']:
+            loss_val = losses[k]
+            if isinstance(loss_val, jt.Var):
+                y_values.append(loss_val.item())  
+            else:
+                y_values.append(loss_val)
+        plot_data['Y'].append(y_values)
+        
         try:
             self.vis.line(
                 X=np.stack([np.array(plot_data['X'])] * len(plot_data['legend']), 1),
@@ -222,7 +247,7 @@ class Visualizer():
         except VisdomExceptionBase:
             self.create_visdom_connections()
 
-    # losses: same format as |losses| of plot_current_losses
+    # 打印当前训练的损失值、时间等信息，并写入日志文件
     def print_current_losses(self, epoch, iters, losses, t_comp, t_data):
         """print current losses on console; also save the losses to the disk
 
@@ -233,10 +258,17 @@ class Visualizer():
             t_comp (float) -- computational time per data point (normalized by batch_size)
             t_data (float) -- data loading time per data point (normalized by batch_size)
         """
-        message = '(epoch: %d, iters: %d, time: %.3f, data: %.3f) ' % (epoch, iters, t_comp, t_data)
+        processed_losses = {}
         for k, v in losses.items():
+            if isinstance(v, jt.Var):
+                processed_losses[k] = v.item()  
+            else:
+                processed_losses[k] = v
+                
+        message = '(epoch: %d, iters: %d, time: %.3f, data: %.3f) ' % (epoch, iters, t_comp, t_data)
+        for k, v in processed_losses.items():
             message += '%s: %.3f ' % (k, v)
 
-        print(message)  # print the message
+        print(message)  
         with open(self.log_name, "a") as log_file:
-            log_file.write('%s\n' % message)  # save the message
+            log_file.write('%s\n' % message)  

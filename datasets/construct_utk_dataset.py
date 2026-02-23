@@ -1,6 +1,7 @@
 import shutil
 import os
 import numpy as np
+"""对UTKFaceHQ 人脸数据集按年龄进行分类和划分，生成适用于训练、测试的数据集目录结构"""
 root = '../../datasets/gan_UTKFaceHQ/'
 
 dataset = 'UTKFaceHQ'

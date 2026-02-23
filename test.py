@@ -26,57 +26,67 @@ See options/base_options.py and options/test_options.py for more test options.
 See training and test tips at: https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/docs/tips.md
 See frequently asked questions at: https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/docs/qa.md
 """
+
 import os
 from options.test_options import TestOptions
 from data import create_dataset
-from models import create_model
+from models import create_model  
 from util.visualizer import save_images
 from util import html
 import util.util as util
-import numpy as np
-import torch
-from torchvision.utils import save_image
-from models.utils import save_high_quality_tensor_image
-import os
+import jittor as jt  
 import time
 
+
+jt.flags.use_cuda = 1 if jt.has_cuda else 0
 if __name__ == '__main__':
-    opt = TestOptions().parse()  # get test options
-    # hard-code some parameters for test
-    opt.num_threads = 0   # test code only supports num_threads = 1
-    opt.batch_size = 1    # test code only supports batch_size = 1
-    opt.serial_batches = True  # disable data shuffling; comment this line if results on randomly chosen images are needed.
-    opt.no_flip = True    # no flip; comment this line if results on flipped images are needed.
-    opt.display_id = -1   # no visdom display; the test code saves the results to a HTML file.
-    dataset = create_dataset(opt)  # create a dataset given opt.dataset_mode and other options
-    train_dataset = create_dataset(util.copyconf(opt, phase="train"))
-    model = create_model(opt)      # create a model given opt.model and other options
-    # create a webpage for viewing the results
-    web_dir = os.path.join(opt.results_dir, opt.name, '{}_{}'.format(opt.phase, opt.epoch))  # define the website directory
-    print('creating web directory', web_dir)
+    opt = TestOptions().parse() 
+    opt.num_threads = 0        # 测试代码仅支持单线程
+    opt.batch_size = 1         # 测试代码仅支持batch_size=1
+    opt.serial_batches = True  # 禁用数据打乱
+    opt.no_flip = True         # 禁用图像翻转
+    opt.display_id = -1        # 不使用visdom显示，结果保存到HTML
+    
+    dataset = create_dataset(opt)                                      # 创建测试数据集
+    train_dataset = create_dataset(util.copyconf(opt, phase="train"))  # 创建训练数据集
+    model = create_model(opt)                                          # 根据参数创建模型
+    
+    # 创建结果网页目录
+    web_dir = os.path.join(opt.results_dir, opt.name, f'{opt.phase}_{opt.epoch}')
+    print('创建网页目录:', web_dir)
     webpage = html.HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
 
+    # 确定最大测试样本数
     if opt.direction == 'AtoB':
-        max_num_test = len(os.listdir(opt.dataroot+'/testA'))
+        max_num_test = len(os.listdir(os.path.join(opt.dataroot, 'testA')))
     else:
-        max_num_test = len(os.listdir(opt.dataroot+'/testB'))
-    loss_pathes = []
+        max_num_test = len(os.listdir(os.path.join(opt.dataroot, 'testB')))
+    
+    loss_pathes = []  
     for i, data in enumerate(dataset):
         if i == 0:
+            # 模型初始化
             model.data_dependent_initialize(data)
-            model.setup(opt)               # regular setup: load and print networks; create schedulers
-            model.parallelize()
+            model.setup(opt)  
             if opt.eval:
-                model.eval()
-        if i >= opt.num_test:  # only apply our model to opt.num_test images.
+                model.eval()  
+        
+        if i >= opt.num_test:  
             break
-        model.set_input(data)  # unpack data from data loader
+        
+        model.set_input(data) 
         st = time.time()
-        model.forward()           # run inference
+        model.forward()  # 执行推理
         et = time.time()
-        visuals = model.get_current_visuals()  # get image results
-        img_path = model.get_image_paths()     # get image paths
-        if i % 5 == 0:  # save images to an HTML file
+        print(f"第{i}张图像推理耗时: {et - st:.4f}秒")  # 打印单张图像推理时间
+        
+        visuals = model.get_current_visuals()  # 获取可视化结果
+        img_path = model.get_image_paths()     # 获取图像路径
+        
+        if i % 5 == 0:  # 每5张图像保存一次到HTML
             print('processing (%04d)-th image... %s' % (i, img_path))
+        
         save_images(webpage, visuals, img_path, width=opt.display_winsize)
-    webpage.save()  # save the HTML
+    
+    webpage.save()  # 保存HTML文件
+    print(f"测试结果已保存至: {web_dir}")

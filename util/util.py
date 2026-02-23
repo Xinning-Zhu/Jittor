@@ -1,15 +1,20 @@
 """This module contains simple helper functions """
 from __future__ import print_function
-import torch
+import jittor as jt
+import jittor.transform as jt_transform
+import jittor.misc as vutils
 import numpy as np
 from PIL import Image
 import os
 import importlib
 import argparse
 from argparse import Namespace
-import torchvision
+from fnmatch import fnmatch
+import shutil
+import hashlib
 
 
+#参数类型转换与配置处理
 def str2bool(v):
     if isinstance(v, bool):
         return v
@@ -22,12 +27,12 @@ def str2bool(v):
 
 
 def copyconf(default_opt, **kwargs):
-    conf = Namespace(**vars(default_opt))
+    conf = Namespace(** vars(default_opt))
     for key in kwargs:
         setattr(conf, key, kwargs[key])
     return conf
 
-
+# 类与模块查找
 def find_class_in_module(target_cls_name, module):
     target_cls_name = target_cls_name.replace('_', '').lower()
     clslib = importlib.import_module(module)
@@ -40,47 +45,45 @@ def find_class_in_module(target_cls_name, module):
 
     return cls
 
-
+# 张量与图像转换
 def tensor2im(input_image, imtype=np.uint8):
-    """"Converts a Tensor array into a numpy image array.
-
-    Parameters:
-        input_image (tensor) --  the input image tensor array
-        imtype (type)        --  the desired type of the converted numpy array
+    """将 Jittor 张量转换为 NumPy 图像数组，
+        支持灰度图转 RGB，并将取值范围从[-1, 1]映射到[0, 255]，
+        用于将网络输出的张量可视化为图像。
     """
     if not isinstance(input_image, np.ndarray):
-        if isinstance(input_image, torch.Tensor):  # get the data from a variable
-            image_tensor = input_image.data
+        if isinstance(input_image, jt.Var):  
+            image_tensor = input_image  
         else:
             return input_image
-        image_numpy = image_tensor[0].clamp(-1.0, 1.0).cpu().float().numpy()  # convert it into a numpy array
-        if image_numpy.shape[0] == 1:  # grayscale to RGB
+        image_numpy = image_tensor[0].clamp(-1.0, 1.0).cpu().float().numpy()
+        if image_numpy.shape[0] == 1:  
             image_numpy = np.tile(image_numpy, (3, 1, 1))
-        image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * 255.0  # post-processing: tranpose and scaling
-    else:  # if it is a numpy array, do nothing
+        image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * 255.0
+    else:  
         image_numpy = input_image
     return image_numpy.astype(imtype)
 
-
+# 网络诊断与信息打印
 def diagnose_network(net, name='network'):
     """Calculate and print the mean of average absolute(gradients)
 
     Parameters:
-        net (torch network) -- Torch network
+        net (Jittor network) -- Jittor network
         name (str) -- the name of the network
     """
     mean = 0.0
     count = 0
     for param in net.parameters():
         if param.grad is not None:
-            mean += torch.mean(torch.abs(param.grad.data))
+            mean += jt.mean(jt.abs(param.grad))
             count += 1
     if count > 0:
         mean = mean / count
     print(name)
     print(mean)
 
-
+# 将 NumPy 图像数组保存为图像文件，支持按比例调整尺寸，用于保存生成的图像结果。
 def save_image(image_numpy, image_path, aspect_ratio=1.0):
     """Save a numpy image to the disk
 
@@ -100,7 +103,7 @@ def save_image(image_numpy, image_path, aspect_ratio=1.0):
         image_pil = image_pil.resize((int(h / aspect_ratio), w), Image.BICUBIC)
     image_pil.save(image_path)
 
-
+# 信息打印
 def print_numpy(x, val=True, shp=False):
     """Print the mean, min, max, median, std, and size of a numpy array
 
@@ -116,7 +119,7 @@ def print_numpy(x, val=True, shp=False):
         print('mean = %3.3f, min = %3.3f, max = %3.3f, median = %3.3f, std=%3.3f' % (
             np.mean(x), np.min(x), np.max(x), np.median(x), np.std(x)))
 
-
+# 创建目录
 def mkdirs(paths):
     """create empty directories if they don't exist
 
@@ -129,7 +132,6 @@ def mkdirs(paths):
     else:
         mkdir(paths)
 
-
 def mkdir(path):
     """create a single empty directory if it didn't exist
 
@@ -139,35 +141,31 @@ def mkdir(path):
     if not os.path.exists(path):
         os.makedirs(path)
 
-
+# 调整标签张量的大小（使用最近邻插值），适用于语义分割等任务中标签与图像尺寸匹配。
 def correct_resize_label(t, size):
-    device = t.device
-    t = t.detach().cpu()
+    t = t.detach() 
     resized = []
-    for i in range(t.size(0)):
-        one_t = t[i, :1]
+    for i in range(t.shape[0]): 
+        one_t = t[i, :1] 
         one_np = np.transpose(one_t.numpy().astype(np.uint8), (1, 2, 0))
-        one_np = one_np[:, :, 0]
+        one_np = one_np[:, :, 0]  
         one_image = Image.fromarray(one_np).resize(size, Image.NEAREST)
-        resized_t = torch.from_numpy(np.array(one_image)).long()
+        resized_t = jt.array(np.array(one_image)).long()
         resized.append(resized_t)
-    return torch.stack(resized, dim=0).to(device)
+    return jt.stack(resized, dim=0)
 
-
+# 调整图像张量的大小（默认双三次插值），并转换为 Jittor 张量格式，用于数据预处理或中间结果的尺寸统一。
 def correct_resize(t, size, mode=Image.BICUBIC):
-    device = t.device
-    t = t.detach().cpu()
+    t = t.detach()
     resized = []
     for i in range(t.size(0)):
         one_t = t[i:i + 1]
         one_image = Image.fromarray(tensor2im(one_t)).resize(size, Image.BICUBIC)
-        resized_t = torchvision.transforms.functional.to_tensor(one_image) * 2 - 1.0
+        resized_t = jt_transform.to_tensor(one_image) * 2 - 1.0
         resized.append(resized_t)
-    return torch.stack(resized, dim=0).to(device)
+    return jt.stack(resized, dim=0)
 
-from fnmatch import fnmatch
-import shutil
-import hashlib
+
 watched_rules = ['*.py', '*.sh', '*.yaml', '*.yml']
 exclude_rules = ['results', 'datasets', 'checkpoints', 'samples', 'outputs']
 def calculate_checksum(filenames):
@@ -176,6 +174,7 @@ def calculate_checksum(filenames):
         if os.path.isfile(fn):
             hash.update(open(fn, "rb").read())
     return hash.hexdigest()
+
 
 def copy_files_and_create_dirs(files, target_dir):
     """Takes in a list of tuples of (src, dst) paths and copies files.
@@ -219,6 +218,7 @@ def _get_watched_files(work_dir):
                     break
     return watched_files
 
+
 def prepare_sub_directories(run_dir, opt):
 
     src_dir = os.path.join(run_dir, 'src')
@@ -231,12 +231,11 @@ def prepare_sub_directories(run_dir, opt):
         os.makedirs(img_dir)
     opt.img_dir = img_dir
 
-
-import torchvision.utils as vutils
+# 将多个图像张量拼接成网格并保存为单张图像，支持扩展灰度图到 3 通道，用于批量可视化网络输出（如生成器的多个结果对比）。
 def __write_images(image_outputs, display_image_num, file_name):
-    image_outputs = [images.expand(-1, 3, -1, -1) for images in image_outputs] # expand gray-scale images to 3 channels
-    image_tensor = torch.cat([images[:display_image_num] for images in image_outputs], 0)
-    image_grid = vutils.make_grid(image_tensor.data, nrow=display_image_num, padding=0, normalize=True)
+    image_outputs = [images.expand(-1, 3, -1, -1) for images in image_outputs]
+    image_tensor = jt.cat([images[:display_image_num] for images in image_outputs], 0)
+    image_grid = vutils.make_grid(image_tensor, nrow=display_image_num, padding=0, normalize=True)
     vutils.save_image(image_grid, file_name, nrow=1)
 
 
